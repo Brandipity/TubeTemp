@@ -5,9 +5,6 @@
 #include "esp_wps.h"
 #include "WiFi_WPS.h"
 
-
-#include "IPGeolocation_AO.h"
-
 extern StoredConfig stored_config;
 
 WifiState_t WifiState = disconnected;
@@ -88,41 +85,6 @@ void WifiBegin()  {
   WiFi.mode(WIFI_STA);
   WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);  
   WiFi.setHostname(DEVICE_NAME);  
-
-#ifdef WIFI_USE_WPS   ////  WPS code
-  // no data is saved, start WPS imediatelly
-  if (stored_config.config.wifi.WPS_connected != StoredConfig::valid) {
-    // Config is invalid, probably a new device never had its config written.
-    Serial.println("Loaded Wifi config is invalid. Not connecting to WiFi.");
-    WiFiStartWps();  // infinite loop until connected
-  } else {
-    // data is saved, connect now
-    // WiFi credentials are known, connect
-    tfts.println("Joining wifi");
-    tfts.println(stored_config.config.wifi.ssid);
-    Serial.print("Joining wifi ");
-    Serial.println(stored_config.config.wifi.ssid);
-  
-    // https://stackoverflow.com/questions/48024780/esp32-wps-reconnect-on-power-on
-    WiFi.begin();  // use internally saved data
-    WiFi.onEvent(WiFiEvent);
-
-    unsigned long StartTime = millis();
-
-    while ((WiFi.status() != WL_CONNECTED)) {
-      delay(500);
-      tfts.print(".");
-      Serial.print(".");
-      if ((millis() - StartTime) > (WIFI_CONNECT_TIMEOUT_SEC * 1000)) {
-        Serial.println("\r\nWiFi connection timeout!");
-        tfts.println("\nTIMEOUT!");
-        WifiState = disconnected;
-        return; // exit loop, exit procedure, continue clock startup
-      }
-    }
-  }
-#else   ////NO WPS -- Hard coded credentials
-
   WiFi.begin(WIFI_SSID, WIFI_PASSWD); 
   WiFi.onEvent(WiFiEvent);
   unsigned long StartTime = millis();
@@ -138,7 +100,6 @@ void WifiBegin()  {
     }
   }
   
-#endif
 
  
   WifiState = connected;
@@ -162,75 +123,3 @@ void WifiReconnect() {
   }    
 }
 
-#ifdef WIFI_USE_WPS   ////  WPS code
-void WiFiStartWps() {
-  // erase settings
-  sprintf(stored_config.config.wifi.ssid, ""); 
-  sprintf(stored_config.config.wifi.password, ""); 
-  stored_config.config.wifi.WPS_connected = 0x11; // invalid = different than 0x55
-  Serial.print("Saving config.");
-  stored_config.save();
-  Serial.println(" Done.");
-   
-  tfts.setTextColor(TFT_GREEN, TFT_BLACK);
-  tfts.println("WPS STARTED!");
-  tfts.setTextColor(TFT_RED, TFT_BLACK);
-  tfts.println("PRESS WPS BUTTON ON THE ROUTER");
-
-  //disconnect from wifi first if we were connected
-  WiFi.disconnect(true, true);
-  
-  WifiState = wps_active;
-  WiFi.onEvent(WiFiEvent);
-  WiFi.mode(WIFI_MODE_STA);
-
-  Serial.println("Starting WPS");
-
-  wpsInitConfig();
-  esp_wifi_wps_enable(&wps_config);
-  esp_wifi_wps_start(0);  
-
-
-  // loop until connected
-  tfts.setTextColor(TFT_BLUE, TFT_BLACK);
-  while (WifiState != connected) {
-    delay(2000);
-    tfts.print(".");
-    Serial.print(".");
-  }
-  tfts.setTextColor(TFT_WHITE, TFT_BLACK);
-  Serial.print("Saving config.");
-  sprintf(stored_config.config.wifi.ssid, "%s", WiFi.SSID()); 
-//   memset(stored_config.config.wifi.ssid, '\0', sizeof(stored_config.config.wifi.ssid));
-//   strcpy(stored_config.config.wifi.ssid, WiFi.SSID()); 
-     
-  sprintf(stored_config.config.wifi.password, ""); // can't save a password from WPS
-  stored_config.config.wifi.WPS_connected = StoredConfig::valid;
-  stored_config.save();
-  Serial.println(" WPS finished."); 
-}
-#endif
-
-// Get an API Key by registering on
-// https://ipgeolocation.io
-// OR
-
-
-bool GetGeoLocationTimeZoneOffset() {
-  Serial.println("Starting Geolocation query...");
-// https://app.abstractapi.com/api/ip-geolocation/    // free for 5k loopkups per month.
-// Live test:  https://ipgeolocation.abstractapi.com/v1/?api_key=e11dc0f9bab446bfa9957aad2c4ad064
-  IPGeolocation location(GEOLOCATION_API_KEY,"ABSTRACT");
-  IPGeo IPG;
-  if (location.updateStatus(&IPG)) {
-   
-    Serial.println(String("Geo Time Zone: ") + String(IPG.tz));
-    Serial.println(String("Geo TZ Offset: ") + String(IPG.offset));  // we are interested in this one, type = double
-    Serial.println(String("Geo Current Time: ") + String(IPG.current_time)); // currently not used
-    GeoLocTZoffset = IPG.offset;
-    return true;
-  } else {
-    Serial.println("Geolocation failed.");    
-    return false;
-  }
-}

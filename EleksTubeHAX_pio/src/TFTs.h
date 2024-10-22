@@ -11,11 +11,10 @@
 #include <TFT_eSPI.h>
 #include "ChipSelect.h"
 
-
 class TFTs : public TFT_eSPI {
 public:
-  TFTs() : TFT_eSPI(), chip_select(), enabled(false)
-    { for (uint8_t digit=0; digit < NUM_DIGITS; digit++) digits[digit] = 0; }
+  TFTs();
+  ~TFTs();  // Add destructor to clean up dynamic memory
 
   // no == Do not send to TFT. yes == Send to TFT if changed. force == Send to TFT.
   enum show_t { no, yes, force };
@@ -33,24 +32,27 @@ public:
   void showTemperature();
 
   void setDigit(uint8_t digit, uint8_t value, show_t show=yes);
-  uint8_t getDigit(uint8_t digit)                 { return digits[digit]; }
+  uint8_t getDigit(uint8_t digit) { return digits[digit]; }
 
-  void showAllDigits()               { for (uint8_t digit=0; digit < NUM_DIGITS; digit++) showDigit(digit); }
+  void showAllDigits() { for (uint8_t digit=0; digit < NUM_DIGITS; digit++) showDigit(digit); }
   void showDigit(uint8_t digit);
 
   // Controls the power to all displays
-  void enableAllDisplays()           { digitalWrite(TFT_ENABLE_PIN, HIGH); enabled = true; }
-  void disableAllDisplays()          { digitalWrite(TFT_ENABLE_PIN, LOW); enabled = false; }
-  void toggleAllDisplays()           { if (enabled) disableAllDisplays(); else enableAllDisplays(); }
-  bool isEnabled()                   { return enabled; }
+  void enableAllDisplays() { digitalWrite(TFT_ENABLE_PIN, HIGH); enabled = true; }
+  void disableAllDisplays() { digitalWrite(TFT_ENABLE_PIN, LOW); enabled = false; }
+  void toggleAllDisplays() { if (enabled) disableAllDisplays(); else enableAllDisplays(); }
+  bool isEnabled() { return enabled; }
 
-  // Making chip_select public so we don't have to proxy all methods, and the caller can just use it directly.
   ChipSelect chip_select;
-
 
   uint8_t NumberOfClockFaces = 0;
   void LoadNextImage();
   void InvalidateImageInBuffer(); // force reload from Flash with new dimming settings
+  
+  // Memory management methods
+  bool allocateImageBuffer();
+  void freeImageBuffer();
+  bool isBufferAllocated() const { return UnpackedImageBuffer != nullptr; }
 
   String clockFaceToName(uint8_t clockFace);
   uint8_t nameToClockFace(String name);
@@ -66,8 +68,10 @@ private:
   uint16_t read16(fs::File &f);
   uint32_t read32(fs::File &f);
 
-  static uint16_t UnpackedImageBuffer[TFT_HEIGHT][TFT_WIDTH];
-  uint8_t FileInBuffer=255; // invalid, always load first image
+  // Change to dynamic allocation
+  uint16_t* UnpackedImageBuffer = nullptr;  // Will be allocated as needed
+  size_t bufferSize = 0;  // Track allocated size
+  uint8_t FileInBuffer = 255; // invalid, always load first image
   uint8_t NextFileRequired = 0;
 
   String patterns_str[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
@@ -75,6 +79,5 @@ private:
 };
 
 extern TFTs tfts;
-
 
 #endif // TFTS_H
