@@ -61,7 +61,6 @@ const unsigned long BT_CHECK_INTERVAL = 100; // Check every 5 seconds
 void updateClockDisplay(TFTs::show_t show=TFTs::yes);
 void setupMenu(void);
 void UpdateDstEveryNight(void);
-void disableWiFi();
 void callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param);
 
 void setup() {
@@ -83,11 +82,8 @@ void setup() {
   tfts.setCursor(0, 0, 2);  // Font 2. 16 pixel high
   tfts.println(F("Begin Setup..."));
 
-  // Setup WiFi connection. Must be done before setting up Clock.
-  // This is done outside Clock so the network can be used for other things.
-  // WiFiBegin(&stored_config.config.wifi);
   tfts.println(F("WiFi Start"));
-  WifiBegin();
+  WiFi.mode(WIFI_STA);
 
   tfts.println(F("Waiting for network."));
   // wait for a bit before querying NTP
@@ -96,8 +92,6 @@ void setup() {
     delay(100);
   }
   tfts.println("");
-
-
 
   // Setup clock and sync time
   tfts.println(F("Clock Start"));
@@ -113,10 +107,6 @@ void setup() {
   }
   tfts.current_graphic = uclock.getActiveGraphicIdx();
 
-  disableWiFi();
-
-  //give the memory some breathing room
-  delay(2000);
   SerialBT.register_callback(callback);
       // Configure Bluetooth parameters
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -131,7 +121,7 @@ void setup() {
     
     // Set connection timeout
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
-     SerialBT.begin("ESP32Test");
+     SerialBT.begin("TubeTemp");
 
 
 
@@ -161,6 +151,8 @@ void loop() {
 
     if (SerialBT.available()) {
         String message = SerialBT.readStringUntil('\n');  // Read until newline
+        int16_t value = (int16_t)message.toInt();
+        backlights.adjustColorPhase(value);
         Serial.print("Received message: ");
         Serial.println(message);
         
@@ -241,13 +233,6 @@ void updateClockDisplay(TFTs::show_t show) {
   tfts.setDigit(HOURS_TENS, uclock.getHoursTens(), show);
 }
 
-void disableWiFi() {
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    esp_wifi_stop();
-    esp_wifi_deinit();
-    Serial.println("Disconnecting WiFi...");
-}
 
 void callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
     switch(event) {
@@ -265,4 +250,57 @@ void callback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
             Serial.println("SPP Started");
             break;
     }
+    
+}
+void disableBluetooth() {
+    SerialBT.end();
+    esp_bluedroid_disable();
+    esp_bluedroid_deinit();
+    esp_bt_controller_disable();
+    esp_bt_controller_deinit();
+    Serial.println("Bluetooth disabled");
+}
+
+void enableBluetooth() {
+    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+    bt_cfg.mode = ESP_BT_MODE_CLASSIC_BT;
+    
+    esp_bt_controller_init(&bt_cfg);
+    esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT);
+    esp_bt_sleep_disable();
+    esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
+    
+    SerialBT.begin("TubeTemp");
+    Serial.println("Bluetooth enabled");
+}
+
+void switchToWifi() {
+    Serial.println("Switching to WiFi...");
+    disableBluetooth();
+    delay(500);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin();
+    
+    // Wait for connection with timeout
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+    
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected");
+    } else {
+        Serial.println("\nWiFi connection failed");
+    }
+}
+
+void switchToBluetooth() {
+    Serial.println("Switching to Bluetooth...");
+    WiFi.disconnect(true);
+    esp_wifi_stop();
+    esp_wifi_deinit();
+    delay(500);
+    enableBluetooth();
 }

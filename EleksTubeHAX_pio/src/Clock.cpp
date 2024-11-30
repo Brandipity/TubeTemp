@@ -1,5 +1,9 @@
 #include "Clock.h"
 #include "WiFi_WPS.h"
+#include "esp_wifi.h" 
+#include "main.h"
+
+void disableWiFi();
 
 
 
@@ -26,7 +30,7 @@ void Clock::begin(StoredConfig::Config::Clock *config_) {
     Serial.println("Loaded Clock config is invalid, using default.  This is normal on first boot.");
     setTwelveHour(true);
     setBlankHoursZero(false);
-    setTimeZoneOffset(-4 * 3600);  // EDT
+    setTimeZoneOffset(-5 * 3600);  // EST
     setActiveGraphicIdx(1);
     config->is_valid = StoredConfig::valid;
   }
@@ -53,44 +57,43 @@ void Clock::loop() {
 
 // Static methods used for sync provider to TimeLib library.
 time_t Clock::syncProvider() {
-  Serial.println("syncProvider()");
-  time_t ntp_now, rtc_now;
-  rtc_now = RtcGet();
-
-  if (millis() - millis_last_ntp > refresh_ntp_every_ms || millis_last_ntp == 0) {
-    if (WifiState == connected) { 
-      // It's time to get a new NTP sync
-      Serial.print("Getting NTP.");
-//      ntpTimeClient.forceUpdate();  // maybe this breaks the NTP requests as this should not be done more than every minute.
-      if (ntpTimeClient.update()) {
-        Serial.print(".");
-        ntp_now = ntpTimeClient.getEpochTime();
-        Serial.println("NTP query done.");
-        Serial.print("NTP time = ");
-        Serial.println(ntpTimeClient.getFormattedTime());
-//      if (ntp_now > 1644601505) { //is it valid - reasonable number?
-          // Sync the RTC to NTP if needed.
-        Serial.println("NTP, RTC, Diff: ");
-        Serial.println(ntp_now);
-        Serial.println(rtc_now);
-        Serial.println(ntp_now-rtc_now);
-        if (ntp_now != rtc_now) {
-          RtcSet(ntp_now);
-          Serial.println("Updating RTC");
+    Serial.println("syncProvider()");
+    time_t ntp_now, rtc_now;
+    rtc_now = RtcGet();
+    
+    if (millis() - millis_last_ntp > refresh_ntp_every_ms || millis_last_ntp == 0) {
+        // Switch to WiFi mode
+        switchToWifi();
+        
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.print("Getting NTP.");
+            if (ntpTimeClient.update()) {
+                Serial.print(".");
+                ntp_now = ntpTimeClient.getEpochTime();
+                Serial.println("NTP query done.");
+                Serial.print("NTP time = ");
+                Serial.println(ntpTimeClient.getFormattedTime());
+                
+                if (ntp_now != rtc_now) {
+                    RtcSet(ntp_now);
+                    Serial.println("Updating RTC");
+                }
+                millis_last_ntp = millis();
+                
+                // Switch back to Bluetooth 
+                switchToBluetooth();
+                return ntp_now;
+            }
         }
-        millis_last_ntp = millis();
-        Serial.println("Using NTP time.");
-        return ntp_now;
-      } else {  // NTP valid
-      Serial.println("Invalid NTP response, using RTC time.");
-      return rtc_now;
-      }
-    } // no wifi
-    Serial.println("No WiFi, using RTC time.");
+        
+        // If we get here, something failed - switch back to Bluetooth
+        switchToBluetooth();
+        Serial.println("Using RTC time due to failure");
+        return rtc_now;
+    }
+    
+    Serial.println("Using RTC time (not time for update yet)");
     return rtc_now;
-  }
-  Serial.println("Using RTC time.");
-  return rtc_now;
 }
 
 uint8_t Clock::getHoursTens() {
